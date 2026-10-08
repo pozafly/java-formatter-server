@@ -1,0 +1,46 @@
+plugins { id 'java' }
+group = 'dev.local'
+version = '0.2.0'
+repositories { mavenCentral() }
+java { sourceCompatibility = JavaVersion.VERSION_21; targetCompatibility = JavaVersion.VERSION_21 }
+// Compile against an installed SDK without downloading or changing IntelliJ.
+def ideaHome = providers.gradleProperty('ideaHome').orElse('/Applications/IntelliJ IDEA.app/Contents')
+sourceSets {
+    idea {
+        compileClasspath += sourceSets.main.output + files(fileTree("${ideaHome.get()}/lib") { include '*.jar' })
+    }
+}
+tasks.named('compileIdeaJava', JavaCompile) {
+    options.fork = true
+    options.forkOptions.executable = "${ideaHome.get()}/jbr/Contents/Home/bin/javac"
+    options.release = 21
+    options.compilerArgs += ['-proc:none']
+}
+tasks.register('engineDist', Sync) {
+    dependsOn jar
+    into layout.buildDirectory.dir('engine')
+    from(tasks.jar) { into 'lib' }
+    from('src/main/resources/export.gradle')
+}
+tasks.register('ideaJar', Jar) {
+    dependsOn ideaClasses, classes
+    archiveBaseName = 'java-save-formatter-plugin'
+    from sourceSets.idea.output
+    from(sourceSets.main.output) { include 'dev/local/javaformatter/WorkerClient*.class', 'dev/local/javaformatter/GradleFormatter*.class' }
+}
+tasks.register('pluginZip', Zip) {
+    dependsOn ideaJar, engineDist
+    archiveFileName = "java-save-formatter-${version}.zip"
+    destinationDirectory = layout.buildDirectory.dir('distributions')
+    into('java-save-formatter') {
+        from(tasks.ideaJar) { into 'lib' }
+        from(tasks.engineDist) { into 'engine' }
+    }
+}
+tasks.register('selfTest', JavaExec) {
+    dependsOn testClasses, engineDist
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.local.javaformatter.FormatterSelfTest'
+    args layout.buildDirectory.dir('engine').get().asFile.absolutePath
+}
+tasks.named('check') { dependsOn 'selfTest' }
