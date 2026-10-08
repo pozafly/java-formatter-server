@@ -4,6 +4,9 @@
 `shortenFullyQualifiedTypes()` 같은 단계와 Palantir 버전을 도구에 고정하지 않습니다.
 Gradle이 평가한 단계 순서, 옵션, 라이브러리, 대상 파일과 `targetExclude`를 사용합니다.
 
+제작 배경, Node·language server·LSP에서 얻은 아이디어, 내부 동작과 기술 의존성은
+[제작 배경과 동작 원리](docs/development-background.md)에 정리했습니다.
+
 ## 동작
 
 1. 처음 Java 파일을 포맷할 때 프로젝트의 Gradle wrapper로 설정을 평가합니다.
@@ -40,6 +43,73 @@ Gradle이 평가한 단계 순서, 옵션, 라이브러리, 대상 파일과 `ta
 파일로 감지할 수 없는 변경은 **다음 포맷 시 Spotless 설정 다시 불러오기** 버튼으로 갱신합니다.
 별도 CLI `-P` 인자나 IDE Gradle 실행 구성의 추가 인자를 자동으로 가져오지는 않습니다.
 
+## 처음 사용하는 프로젝트의 준비 사항
+
+이 플러그인은 **프로젝트에 설정된 Gradle Spotless를 빠르게 실행하는 도구**입니다.
+플러그인 ZIP만 설치하면 기본 포맷 규칙이 자동으로 생기는 것은 아닙니다.
+
+### 무엇을 설치하거나 설정해야 하나요?
+
+| 준비할 항목 | 방법 |
+| --- | --- |
+| 호환되는 IntelliJ IDEA | 현재 ZIP은 262 계열이며 최소 빌드는 262.10968입니다. 검증한 버전은 2026.2.3입니다. |
+| JDK 21 | 설치된 JDK를 사용하거나 새로 설치한 뒤 플러그인 설정에 경로를 지정합니다. |
+| Gradle wrapper가 있는 Java 프로젝트 | 프로젝트에 `gradlew`와 `gradle/wrapper/gradle-wrapper.jar`가 있어야 합니다. Gradle 8.14.3으로 검증했습니다. |
+| **Gradle용 Spotless 플러그인과 Java 포맷 규칙** | 프로젝트의 빌드 설정에 추가합니다. 아래 예시를 참고하세요. |
+| Java Save Formatter | ZIP을 IntelliJ에 설치하고 아래 설치 절차에 따라 활성화합니다. |
+
+**IntelliJ용 Spotless 플러그인이나 Palantir 플러그인은 별도로 설치할 필요가 없습니다.**
+여기서 필요한 Spotless는 `build.gradle`에 적용하는 **Gradle 플러그인**입니다.
+Palantir 라이브러리도 파일을 직접 받아 설치할 필요 없이, Gradle 설정에 버전을 지정하면 됩니다.
+필요한 라이브러리가 로컬 캐시에 없으면 Gradle이 설정된 저장소에서 내려받습니다.
+따라서 처음 사용할 때는 해당 저장소에 접근할 수 있어야 합니다.
+
+### Spotless가 없는 프로젝트의 설정 예시
+
+다음은 단일 Java 프로젝트의 `build.gradle` 예시입니다. 버전은 이 도구에서 검증한 조합입니다.
+기존 프로젝트에서는 `plugins`와 `repositories` 블록에 필요한 항목만 합치세요.
+이미 Java 플러그인이나 `mavenCentral()`이 있다면 중복으로 추가할 필요가 없습니다.
+여러 모듈로 구성된 프로젝트는 Java 소스가 있는 모듈에 Spotless와 규칙을 적용합니다.
+
+```groovy
+plugins {
+    id 'java'
+    id 'com.diffplug.spotless' version '8.10.2'
+}
+
+repositories {
+    mavenCentral()
+}
+
+spotless {
+    java {
+        shortenFullyQualifiedTypes()
+        removeUnusedImports()
+        palantirJavaFormat('2.97.0')
+    }
+}
+```
+
+Spotless 플러그인 선언 방법과 Java 규칙은 [Gradle Plugin Portal](https://plugins.gradle.org/plugin/com.diffplug.spotless/8.10.2)과
+[Spotless Java 문서](https://github.com/diffplug/spotless/tree/main/plugin-gradle#java)를 참고하세요.
+프로젝트에서 사내 저장소를 사용한다면 해당 저장소를 통해 플러그인과 포맷 라이브러리를 받을 수 있어야 합니다.
+
+설정을 저장한 뒤 JDK 21로 `./gradlew spotlessJavaCheck`를 실행해 Gradle에서도 규칙을 읽을 수 있는지 확인합니다.
+이 명령은 소스를 수정하지 않습니다. 코드가 규칙에 맞지 않아 검사에 실패하는 것은 설정을 불러오지 못한 오류와 다릅니다.
+검사에서 포맷 차이만 보고된다면 규칙은 실행된 것이므로, 아래 설치 절차에 따라 저장 시 포맷을 연결하면 됩니다.
+
+### 준비가 안 되어 있으면 어떻게 되나요?
+
+| 상태 | 현재 동작 |
+| --- | --- |
+| Gradle wrapper가 없음 | Gradle 루트를 찾을 수 없거나 wrapper가 없다는 오류를 표시합니다. |
+| Spotless가 적용되지 않았거나, 활성화된 `spotlessJava` 태스크가 없음 | 설정 가져오기에 실패합니다. 로그에는 `No enabled spotlessJava task found in this Gradle build.`가 기록됩니다. |
+| Spotless Java 설정은 있지만 Palantir 등 코드 스타일을 정하는 단계가 없음 | 등록된 단계만 적용합니다. 도구가 Palantir를 자동으로 선택하거나 추가하지 않습니다. |
+| 포매터 라이브러리가 캐시에 없음 | Gradle이 다운로드합니다. 다운로드에 실패하면 설정 가져오기도 실패합니다. |
+
+설정 가져오기에 실패하면 IDE에 오류와 로그 경로를 안내하고, 이 도구는 문서를 변경하지 않습니다.
+기본 포매터를 대신 선택하거나 Spotless를 자동으로 추가하는 기능은 현재 없습니다.
+
 ## 설치·업데이트
 
 빌드/클래스 연결 확인 대상: **IntelliJ IDEA 2026.2.3, IU-262.10968.63**.
@@ -54,7 +124,8 @@ Gradle이 평가한 단계 순서, 옵션, 라이브러리, 대상 파일과 `ta
    비우면 프로젝트 SDK를 사용합니다. 선택한 JDK로 wrapper와 상주 엔진을 모두 실행합니다.
 4. **Gradle 루트**는 보통 비워둡니다. 포맷 대상 Java 파일에서 가장 가까운 wrapper를 탐색합니다.
    하위 프로젝트에 별도 wrapper가 있지만 상위 빌드를 사용해야 한다면 상위 루트를 명시하세요.
-5. 기존 **Run spotless**와 프로젝트의 **Enable palantir-java-format**을 끕니다.
+5. 기존에 사용하던 **Run spotless**나 **Enable palantir-java-format**이 켜져 있다면 끕니다.
+   해당 플러그인이 없다면 이 단계는 건너뜁니다.
 6. **Tools → Actions on Save → Reformat code**를 켜고 **Java / Whole file**을 선택합니다.
    Java의 Optimize imports, Rearrange code, Code cleanup은 꺼서 같은 저장에 규칙이 겹치지 않게 합니다.
 7. Java 파일을 저장합니다. 첫 실행에는 `Spotless 설정 불러오는 중` 알림이 표시됩니다.
